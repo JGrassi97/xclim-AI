@@ -1,0 +1,5 @@
+exclude_fields:
+  - ds
+  - indexer
+  - compute
+  - rv_continuous

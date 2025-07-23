@@ -1,0 +1,34 @@
+credentials:
+ provider: 'azure-openai'
+ langsmith: false
+
+
+azure-openai:
+  azure_openai_api_key: ...
+  azure_openai_endpoint: https://esiapoc.openai.azure.com/
+  azure_openai_api_version: 2024-02-01
+  azure_openai_llm_model: gpt-4o-mini
+  azure_openai_llm_rag_model: gpt-4o-mini
+  azure_openai_embedding_model: text-embedding-ada-002
+  
+openai:
+  openai_api_key: ...
+  llm_model: gpt-4.1-mini
+  llm_rag_model: gpt-4.1-mini
+  embedding_model: text-embedding-ada-002
+
+# LangSmith configuration - If langsmith : false, this section is ignored
+langsmith:
+  langsmith_api_key: ...
+  lagchain_tracing_v2: "true"
+  lagchain_project: ...
+  lagchain_endpoint: https://api.smith.langchain.com
+
+# Dataset configuration
+dataset:
+  name: openmeteo_standard_ensemble
+  params:
+    lat: 44.49
+    lon: 11.34
+    start_date: '1950-01-01'
+    end_date: '2050-12-31'

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.20"]
+build-backend = "hatchling.build"
+
+[project]
+name = "xclim-tools"
+version = "0.1.0"
+description = "Auto-generated LangChain tools for xclim indicators"
+readme = "README.md"
+requires-python = ">=3.10"
+
+authors = [
+  { name = "Tuo Nome", email = "tuo@email.com" }
+]
+
+license = { text = "MIT" }
+
+# Dipendenze runtime
+dependencies = [
+  "xclim>=0.45",
+  "xarray>=2024.1",
+  "pydantic>=2",
+  "langchain>=0.1.0",
+  "pyyaml>=6"
+]
+
+[project.urls]
+Homepage = "https://github.com/tuo-utente/xclim-tools"
+Repository = "https://github.com/tuo-utente/xclim-tools"
+Issues = "https://github.com/tuo-utente/xclim-tools/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xclim_ai"]
+
+[tool.setuptools.package-data]
+"xclim_ai.data" = ["*.yaml"]
+"xclim_ai.prompts" = ["**/*.md", "**/*.jinja2"]
+
+[project.scripts]
+xclimaug-vs = "xclim_ai.scripts.vectorstore_from_xclim_augmented:main"
+xclimgen-vs = "xclim_ai.scripts.vectorstore_from_xclim:main"
+
+valid-tools = "xclim_ai.scripts.valid_tools:main"
+
+xclim-cli = "xclim_ai.cli.xclimai_cli:main"
