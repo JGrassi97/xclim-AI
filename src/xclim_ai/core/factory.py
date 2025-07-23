@@ -58,7 +58,6 @@ def _make_run(func, ind_name: str | None = None):
             return to_context
 
         except Exception as e:
-            raise
             return f"Error during execution: {e}" if safe else (_ for _ in ()).throw(e)
 
     return _run
