@@ -116,30 +116,32 @@ def save_to_memory(
 
 def _save_plot(df: pd.DataFrame, path: Path, ind_name: str):
     """Generate a basic time series plot and save it to disk."""
-    fig, ax = plt.subplots(figsize=(8, 5))
+    # fig, ax = plt.subplots(figsize=(8, 5))
 
-    df_rolling = df.rolling(window=10, center=True).mean()
+    # df_rolling = df.rolling(window=10, center=True).mean()
 
-    # Plot rolling mean and percentiles
-    ax.plot(df_rolling.index, df_rolling["mean"], color="red", label="10-year rolling mean", linewidth=3)
-    ax.plot(df_rolling.index, df_rolling["p10"], color="red", ls="--", alpha=0.7, lw=3)
-    ax.plot(df_rolling.index, df_rolling["p90"], color="red", ls=":", alpha=0.7, lw=3)
+    # # Plot rolling mean and percentiles
+    # ax.plot(df_rolling.index, df_rolling["mean"], color="red", label="10-year rolling mean", linewidth=3)
+    # ax.plot(df_rolling.index, df_rolling["p10"], color="red", ls="--", alpha=0.7, lw=3)
+    # ax.plot(df_rolling.index, df_rolling["p90"], color="red", ls=":", alpha=0.7, lw=3)
 
-    # Plot original mean and percentiles
-    ax.plot(df.index, df["mean"], label="Multi-model mean", color="black", lw=1)
-    ax.plot(df.index, df["p10"], color="black", ls="--", alpha=0.7, label="10% quantile", lw=1)
-    ax.plot(df.index, df["p90"], color="black", ls=":", alpha=0.7, label="90% quantile", lw=1)
-    ax.fill_between(df.index, df["p10"], df["p90"], color="black", alpha=0.1, label="10–90% quantile range")
+    # # Plot original mean and percentiles
+    # ax.plot(df.index, df["mean"], label="Multi-model mean", color="black", lw=1)
+    # ax.plot(df.index, df["p10"], color="black", ls="--", alpha=0.7, label="10% quantile", lw=1)
+    # ax.plot(df.index, df["p90"], color="black", ls=":", alpha=0.7, label="90% quantile", lw=1)
+    # ax.fill_between(df.index, df["p10"], df["p90"], color="black", alpha=0.1, label="10–90% quantile range")
 
-    # Styling
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.set_xlabel("Time")
-    ax.set_ylabel(ind_name)
-    ax.set_title(f"{ind_name} time series")
-    ax.grid(True, linestyle="--", alpha=0.5)
-    ax.legend(loc="upper left", bbox_to_anchor=(1, 1), frameon=False)
+    # # Styling
+    # ax.spines["top"].set_visible(False)
+    # ax.spines["right"].set_visible(False)
+    # ax.set_xlabel("Time")
+    # ax.set_ylabel(ind_name)
+    # ax.set_title(f"{ind_name} time series")
+    # ax.grid(True, linestyle="--", alpha=0.5)
+    # ax.legend(loc="upper left", bbox_to_anchor=(1, 1), frameon=False)
 
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
+    # fig.tight_layout()
+    # fig.savefig(path, dpi=150)
+    # plt.close(fig)
+
+    pass
