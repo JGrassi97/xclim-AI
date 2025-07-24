@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/JGrassi97/xclim-AI/blob/main/img/xclim-ai_logo.png?raw=true" width="240" height="200">
+  <img src="https://github.com/JGrassi97/xclim-AI/blob/main/img/xclim-ai_logo.png?raw=true" width="240" height="240">
 </p>
 
 **xclim-AI** is a climate analytics framework that leverages Large Language Models (LLMs) to identify and compute relevant climate indicators from the [xclim](https://github.com/Ouranosinc/xclim) library. It combines high-resolution daily climate projections retrieved via the Open-Meteo API with a retrieval-augmented generation (RAG) agent that selects the most appropriate indicators based on a user query. All data and embeddings are stored locally in a configurable directory, allowing full offline operation after setup.
