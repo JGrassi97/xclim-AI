@@ -24,6 +24,17 @@ dependencies = [
   "pyyaml>=6"
 ]
 
+# Dipendenze per i test (opzionali)
+[project.optional-dependencies]
+test = [
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "pytest-mock>=3.10",
+  "pytest-asyncio>=0.21",
+  "responses>=0.23.0",
+  "factory-boy>=3.2.0"
+]
+
 [project.urls]
 Homepage = "https://github.com/tuo-utente/xclim-tools"
 Repository = "https://github.com/tuo-utente/xclim-tools"
@@ -43,3 +54,28 @@ xclimgen-vs = "xclim_ai.scripts.vectorstore_from_xclim:main"
 valid-tools = "xclim_ai.scripts.valid_tools:main"
 
 xclim-cli = "xclim_ai.cli.xclimai_cli:main"
+
+# Configurazione pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+  "--strict-markers",
+  "--strict-config",
+  "--cov=src/xclim_ai",
+  "--cov-report=term-missing",
+  "--cov-report=html:htmlcov",
+  "--cov-report=xml",
+]
+markers = [
+  "unit: Unit tests",
+  "integration: Integration tests",
+  "slow: Slow tests that take more than a few seconds",
+  "api: Tests that require API access",
+]
+filterwarnings = [
+  "ignore::FutureWarning",
+  "ignore::DeprecationWarning",
+]

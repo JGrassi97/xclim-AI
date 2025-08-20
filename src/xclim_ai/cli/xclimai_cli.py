@@ -11,13 +11,14 @@ from langsmith import Client
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-llm = initialize_llm()
+
 
 
 def call_xclim_ai_direct(
     lat: float,
     lon: float,
     query: str,
+    model_name: str = "gpt-4.1-mini",
     k: int = 1,
     max_iters: int = 1,
     llm_summary: bool = False,
@@ -30,6 +31,8 @@ def call_xclim_ai_direct(
 
     initialize_langsmith()
     client = Client()
+
+    llm = initialize_llm(model=model_name)
 
 
 
