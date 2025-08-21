@@ -40,15 +40,16 @@ if provider == "azure-openai":
             temperature=temperature,
         )
 
-    def initialize_llm_rag(temperature: float = 0.0) -> AzureChatOpenAI:
+    def initialize_llm_rag(temperature: float = 0.0, model: str | None = None) -> AzureChatOpenAI:
         """
         Initialize Azure OpenAI LLM client for RAG usage.
         """
+        deployment = model or rag_model
         return AzureChatOpenAI(
             openai_api_version=azure_version,
             openai_api_key=azure_key,
             azure_endpoint=azure_endpoint,
-            deployment_name=rag_model,
+            deployment_name=deployment,
             temperature=temperature,
         )
 
@@ -81,12 +82,13 @@ elif provider == "openai":
             openai_api_key=openai_key
         )
 
-    def initialize_llm_rag(temperature: float = 0.0) -> ChatOpenAI:
+    def initialize_llm_rag(temperature: float = 0.0, model: str | None = None) -> ChatOpenAI:
         """
         Initialize OpenAI LLM client for RAG usage.
         """
+        model_name = model or rag_model
         return ChatOpenAI(
-            model_name=rag_model,
+            model_name=model_name,
             openai_api_key=openai_key
         )
 

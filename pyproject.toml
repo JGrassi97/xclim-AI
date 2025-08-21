@@ -35,6 +35,11 @@ test = [
   "factory-boy>=3.2.0"
 ]
 
+# Optional app dependencies (Streamlit UI)
+app = [
+  "streamlit>=1.32"
+]
+
 [project.urls]
 Homepage = "https://github.com/tuo-utente/xclim-tools"
 Repository = "https://github.com/tuo-utente/xclim-tools"

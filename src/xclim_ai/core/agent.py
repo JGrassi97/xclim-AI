@@ -12,6 +12,7 @@
 
 
 import uuid
+import types
 import contextlib
 from pathlib import Path
 from typing import TypedDict, List, Dict, Any
@@ -26,6 +27,7 @@ from xclim_ai.rag.XclimRAGAgent import XclimRAGAgent
 from xclim_ai.utils.prompts import load_prompt
 from xclim_ai.utils.paths import OUTPUT_RESULTS
 from xclim_ai.utils.logging import get_logger, StreamToLogger
+from xclim_ai.utils.streaming import get_streamer, EventType
 
 
 class RagToolState(TypedDict, total=False):
@@ -55,7 +57,8 @@ class Xclim_AI:
         score_threshold: float = 0.75,
         llm_summary: bool = False,
         verbose: bool = False,
-        output_dir: Path = None,
+        output_dir: Path | None = None,
+        rag_model: str | None = None,
         **ds_kwargs,
     ):
         self.llm = llm
@@ -64,6 +67,7 @@ class Xclim_AI:
         self.score_threshold = score_threshold
         self.llm_summary = llm_summary
         self.verbose = verbose
+        self.rag_model = rag_model
 
         if output_dir:
             self.output_dir = output_dir
@@ -74,6 +78,7 @@ class Xclim_AI:
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self._logger = get_logger(name=f'XclimAI', log_file=f"{self.output_dir}/agent_debug.log")
+        self._streamer = get_streamer()
 
         
         if dataset is None:
@@ -89,16 +94,49 @@ class Xclim_AI:
             for cls in raw_tools
         ]
 
+        # Wrap tools to emit streaming events with tool name and parameters
+        self._wrap_tools_for_streaming()
+
         self.graph = self._build_graph()
 
-    def run(self, query: str) -> RagToolState:
-        """Run the LangGraph on a query and return the final state."""
+    def run(self, query: str, additional_system: str | None = None) -> RagToolState:
+        """Run the LangGraph on a query and return the final state.
 
+        additional_system: optional per-run system instructions to prepend to the tool agent prompt.
+        """
+        # Store per-run additional system prompt for downstream nodes
+        self.additional_system = (additional_system or "").strip()
+
+        self._streamer.emit(EventType.AGENT_START, f"Starting Xclim_AI with query: {query}", "Xclim_AI")
         self._logger.info(f"Query: {query}")
-        return self.graph.invoke({"query": query})
+
+        result = self.graph.invoke({"query": query})
+
+        self._streamer.emit(EventType.AGENT_END, "Xclim_AI execution completed", "Xclim_AI")
+        return result
 
     def _build_graph(self):
         """Construct and compile the LangGraph."""
+        
+        def _sanitize_params(params: Dict[str, Any]) -> Dict[str, str]:
+            def _to_str(v):
+                try:
+                    s = str(v)
+                except Exception:
+                    s = repr(v)
+                # truncate long strings
+                return (s[:200] + "…") if len(s) > 200 else s
+            return {str(k): _to_str(v) for k, v in (params or {}).items()}
+
+        def _emit_tool_event(action: str, tool_name: str, params: Dict[str, Any]):
+            self._streamer.emit(
+                EventType.TOOL_OBSERVATION,
+                f"{action.title()} tool: {tool_name}",
+                "ToolAgent",
+                tool=tool_name,
+                params=_sanitize_params(params),
+                action=action,
+            )
 
         def rag_node(state: RagToolState) -> RagToolState:
             query = state["query"]
@@ -107,6 +145,7 @@ class Xclim_AI:
                 max_iters=self.max_iters,
                 score_threshold=self.score_threshold,
                 verbose=self.verbose,
+                rag_model=self.rag_model,
             )
             refined_query, indicators = rag_agent.run(query)
             return {
@@ -119,12 +158,21 @@ class Xclim_AI:
             top_ids = [x["id"].split(".")[-1] for x in state["indicators"]]
             top_ext = [f"{x['id'].split('.')[-1]}: {x['text']}" for x in state["indicators"]]
 
+            self._streamer.emit(EventType.TOOL_START, 
+                               f"Starting tool execution with {len(top_ids)} indicators", 
+                               "ToolAgent",
+                               indicators=top_ids)
+
             instructions = load_prompt("tool_agent.md")
             instructions = (
                 instructions.replace("{variables}", ", ".join(self.ds.data_vars))
                 .replace("{top_xclim_ind_to_prompt}", ", ".join(top_ids))
                 .replace("{top_xclim_ind_to_prompt_ext}", ", ".join(top_ext))
             )
+            # Prepend additional per-run system instructions if provided
+            extra_sys = getattr(self, "additional_system", "").strip()
+            if extra_sys:
+                instructions = f"{extra_sys}\n\n" + instructions
 
             prompt = ChatPromptTemplate.from_messages(
                 [
@@ -155,6 +203,10 @@ class Xclim_AI:
             else:
                 result = executor.invoke({"input": state["query"]})
 
+            self._streamer.emit(EventType.TOOL_END, 
+                               "Tool execution completed", 
+                               "ToolAgent")
+
             output_md_path = self.output_dir / "final_output.md"
             with open(output_md_path, "w", encoding="utf-8") as f:
                 f.write(result["output"])
@@ -168,3 +220,48 @@ class Xclim_AI:
         graph.add_edge("rag", "tool_agent")
         graph.set_finish_point("tool_agent")
         return graph.compile()
+
+    def _wrap_tools_for_streaming(self) -> None:
+        """Wrap each tool's _run to emit start/end events with name and parameters."""
+        for tool in self.valid_tools:
+            if not hasattr(tool, "_run"):
+                continue
+            original_run = tool._run
+
+            def make_wrapper(orig):
+                def _wrapped_run(*args, **kwargs):
+                    try:
+                        # Emit start event with sanitized params
+                        self._streamer.emit(
+                            EventType.TOOL_OBSERVATION,
+                            f"Start tool: {getattr(tool, 'name', tool.__class__.__name__)}",
+                            "ToolAgent",
+                            tool=getattr(tool, 'name', tool.__class__.__name__),
+                            params={k: (str(v)[:200] + "…" if len(str(v)) > 200 else str(v)) for k, v in kwargs.items()},
+                            action="start",
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        result = orig(*args, **kwargs)
+                    finally:
+                        try:
+                            self._streamer.emit(
+                                EventType.TOOL_OBSERVATION,
+                                f"End tool: {getattr(tool, 'name', tool.__class__.__name__)}",
+                                "ToolAgent",
+                                tool=getattr(tool, 'name', tool.__class__.__name__),
+                                params={k: (str(v)[:200] + "…" if len(str(v)) > 200 else str(v)) for k, v in kwargs.items()},
+                                action="end",
+                            )
+                        except Exception:
+                            pass
+                    return result
+                return _wrapped_run
+
+            try:
+                wrapped = make_wrapper(original_run)
+                tool._run = types.MethodType(wrapped, tool)
+            except Exception:
+                # If wrapping fails, leave tool as-is
+                continue

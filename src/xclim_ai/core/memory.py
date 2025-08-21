@@ -116,32 +116,57 @@ def save_to_memory(
 
 def _save_plot(df: pd.DataFrame, path: Path, ind_name: str):
     """Generate a basic time series plot and save it to disk."""
-    # fig, ax = plt.subplots(figsize=(8, 5))
+    try:
+        if df.empty:
+            return
 
-    # df_rolling = df.rolling(window=10, center=True).mean()
+        fig, ax = plt.subplots(figsize=(9, 5))
 
-    # # Plot rolling mean and percentiles
-    # ax.plot(df_rolling.index, df_rolling["mean"], color="red", label="10-year rolling mean", linewidth=3)
-    # ax.plot(df_rolling.index, df_rolling["p10"], color="red", ls="--", alpha=0.7, lw=3)
-    # ax.plot(df_rolling.index, df_rolling["p90"], color="red", ls=":", alpha=0.7, lw=3)
+        # If standard columns exist, use the nicer plot with bands
+        has_quantiles = all(col in df.columns for col in ["mean", "p10", "p90"])
 
-    # # Plot original mean and percentiles
-    # ax.plot(df.index, df["mean"], label="Multi-model mean", color="black", lw=1)
-    # ax.plot(df.index, df["p10"], color="black", ls="--", alpha=0.7, label="10% quantile", lw=1)
-    # ax.plot(df.index, df["p90"], color="black", ls=":", alpha=0.7, label="90% quantile", lw=1)
-    # ax.fill_between(df.index, df["p10"], df["p90"], color="black", alpha=0.1, label="10–90% quantile range")
+        if has_quantiles:
+            # Rolling mean for smoother visualization (10-year window when index is datetime)
+            try:
+                df_rolling = df.rolling(window=10, center=True).mean()
+            except Exception:
+                df_rolling = df
 
-    # # Styling
-    # ax.spines["top"].set_visible(False)
-    # ax.spines["right"].set_visible(False)
-    # ax.set_xlabel("Time")
-    # ax.set_ylabel(ind_name)
-    # ax.set_title(f"{ind_name} time series")
-    # ax.grid(True, linestyle="--", alpha=0.5)
-    # ax.legend(loc="upper left", bbox_to_anchor=(1, 1), frameon=False)
+            # Plot rolling mean and percentiles
+            ax.plot(df_rolling.index, df_rolling["mean"], color="tab:red", label="10-year rolling mean", linewidth=2.5)
+            ax.plot(df_rolling.index, df_rolling["p10"], color="tab:red", ls="--", alpha=0.7, lw=1.5)
+            ax.plot(df_rolling.index, df_rolling["p90"], color="tab:red", ls=":", alpha=0.7, lw=1.5)
 
-    # fig.tight_layout()
-    # fig.savefig(path, dpi=150)
-    # plt.close(fig)
+            # Plot original mean and percentiles
+            ax.plot(df.index, df["mean"], label="Multi-model mean", color="black", lw=1)
+            ax.fill_between(df.index, df["p10"], df["p90"], color="black", alpha=0.08, label="10–90% range")
+        else:
+            # Fallback: plot up to first 5 numeric columns
+            plotted = 0
+            for col in df.columns:
+                if plotted >= 5:
+                    break
+                try:
+                    ax.plot(df.index, df[col], label=str(col), lw=1.5)
+                    plotted += 1
+                except Exception:
+                    continue
 
-    pass
+        # Styling
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.set_xlabel("Time")
+        ax.set_ylabel(ind_name)
+        ax.set_title(f"{ind_name} time series")
+        ax.grid(True, linestyle="--", alpha=0.4)
+        ax.legend(loc="upper left", bbox_to_anchor=(1, 1), frameon=False)
+
+        fig.tight_layout()
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        # Do not raise plotting errors; silently skip plot generation
+        try:
+            plt.close('all')
+        except Exception:
+            pass
