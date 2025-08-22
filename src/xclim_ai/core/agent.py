@@ -12,6 +12,7 @@
 
 
 import uuid
+import re
 import types
 import contextlib
 from pathlib import Path
@@ -119,14 +120,30 @@ class Xclim_AI:
         """Construct and compile the LangGraph."""
         
         def _sanitize_params(params: Dict[str, Any]) -> Dict[str, str]:
-            def _to_str(v):
+            SENSITIVE = {"api_key", "token", "password", "secret", "authorization"}
+            def _short(v):
                 try:
+                    if isinstance(v, (list, tuple)):
+                        inner = ", ".join(_short(x) for x in list(v)[:4])
+                        more = "…" if len(v) > 4 else ""
+                        return f"[{inner}{more}]"
+                    if isinstance(v, dict):
+                        items = list(v.items())[:4]
+                        inner = ", ".join(f"{k}={_short(val)}" for k, val in items)
+                        more = "…" if len(v) > 4 else ""
+                        return f"{{{inner}{more}}}"
                     s = str(v)
                 except Exception:
                     s = repr(v)
-                # truncate long strings
-                return (s[:200] + "…") if len(s) > 200 else s
-            return {str(k): _to_str(v) for k, v in (params or {}).items()}
+                return (s[:160] + "…") if len(s) > 160 else s
+            out: Dict[str, str] = {}
+            for k, v in (params or {}).items():
+                key = str(k)
+                if key.lower() in SENSITIVE:
+                    out[key] = "***"
+                else:
+                    out[key] = _short(v)
+            return out
 
         def _emit_tool_event(action: str, tool_name: str, params: Dict[str, Any]):
             self._streamer.emit(
@@ -162,6 +179,8 @@ class Xclim_AI:
                                f"Starting tool execution with {len(top_ids)} indicators", 
                                "ToolAgent",
                                indicators=top_ids)
+            # Agent is planning which tool to call and with what inputs
+            self._streamer.emit(EventType.AGENT_THINKING, "Planning tool calls", "ToolAgent")
 
             instructions = load_prompt("tool_agent.md")
             instructions = (
@@ -206,6 +225,8 @@ class Xclim_AI:
             self._streamer.emit(EventType.TOOL_END, 
                                "Tool execution completed", 
                                "ToolAgent")
+            # Agent is consolidating outputs and deciding the final response
+            self._streamer.emit(EventType.AGENT_THINKING, "Synthesizing final answer", "ToolAgent")
 
             output_md_path = self.output_dir / "final_output.md"
             with open(output_md_path, "w", encoding="utf-8") as f:
@@ -223,21 +244,54 @@ class Xclim_AI:
 
     def _wrap_tools_for_streaming(self) -> None:
         """Wrap each tool's _run to emit start/end events with name and parameters."""
+        def _sanitize_params_local(params: Dict[str, Any]) -> Dict[str, str]:
+            SENSITIVE = {"api_key", "token", "password", "secret", "authorization"}
+            def _short(v):
+                try:
+                    if isinstance(v, (list, tuple)):
+                        inner = ", ".join(_short(x) for x in list(v)[:4])
+                        more = "…" if len(v) > 4 else ""
+                        return f"[{inner}{more}]"
+                    if isinstance(v, dict):
+                        items = list(v.items())[:4]
+                        inner = ", ".join(f"{k}={_short(val)}" for k, val in items)
+                        more = "…" if len(v) > 4 else ""
+                        return f"{{{inner}{more}}}"
+                    s = str(v)
+                except Exception:
+                    s = repr(v)
+                return (s[:160] + "…") if len(s) > 160 else s
+            out: Dict[str, str] = {}
+            for k, v in (params or {}).items():
+                key = str(k)
+                if key.lower() in SENSITIVE:
+                    out[key] = "***"
+                else:
+                    out[key] = _short(v)
+            return out
         for tool in self.valid_tools:
             if not hasattr(tool, "_run"):
                 continue
             original_run = tool._run
+            # Prefer the explicit tool name; if not reliable, derive from class name
+            explicit_name = getattr(tool, 'name', None)
+            cls_name = tool.__class__.__name__
+            base = re.sub(r"Tool$", "", cls_name)
+            # CamelCase -> snake_case
+            snake = re.sub(r"(?<!^)(?=[A-Z])", "_", base).lower()
+            tool_name = explicit_name if (isinstance(explicit_name, str) and explicit_name and explicit_name != "base_indicator_tool") else snake
 
-            def make_wrapper(orig):
+            def make_wrapper(orig, captured_tool_name: str, captured_class_name: str):
                 def _wrapped_run(*args, **kwargs):
                     try:
                         # Emit start event with sanitized params
                         self._streamer.emit(
                             EventType.TOOL_OBSERVATION,
-                            f"Start tool: {getattr(tool, 'name', tool.__class__.__name__)}",
+                            f"Start tool: {captured_tool_name}",
                             "ToolAgent",
-                            tool=getattr(tool, 'name', tool.__class__.__name__),
-                            params={k: (str(v)[:200] + "…" if len(str(v)) > 200 else str(v)) for k, v in kwargs.items()},
+                            tool=captured_tool_name,
+                            tool_class=captured_class_name,
+                            params=_sanitize_params_local(kwargs),
                             action="start",
                         )
                     except Exception:
@@ -248,10 +302,11 @@ class Xclim_AI:
                         try:
                             self._streamer.emit(
                                 EventType.TOOL_OBSERVATION,
-                                f"End tool: {getattr(tool, 'name', tool.__class__.__name__)}",
+                                f"End tool: {captured_tool_name}",
                                 "ToolAgent",
-                                tool=getattr(tool, 'name', tool.__class__.__name__),
-                                params={k: (str(v)[:200] + "…" if len(str(v)) > 200 else str(v)) for k, v in kwargs.items()},
+                                tool=captured_tool_name,
+                                tool_class=captured_class_name,
+                                params=_sanitize_params_local(kwargs),
                                 action="end",
                             )
                         except Exception:
@@ -260,7 +315,7 @@ class Xclim_AI:
                 return _wrapped_run
 
             try:
-                wrapped = make_wrapper(original_run)
+                wrapped = make_wrapper(original_run, tool_name, cls_name)
                 tool._run = types.MethodType(wrapped, tool)
             except Exception:
                 # If wrapping fails, leave tool as-is

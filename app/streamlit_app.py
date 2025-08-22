@@ -5,6 +5,7 @@ import json
 import zipfile
 import threading
 import time
+import re
 from pathlib import Path
 from typing import List, Tuple
 
@@ -42,6 +43,44 @@ def export_events(events: List[StreamEvent]) -> str:
         for e in events
     ]
     return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def _normalize_tool_name(tool: str | None, tool_class: str | None) -> str:
+    """Return a readable tool name, preferring the explicit tool name; else derive from class."""
+    if tool and tool != "base_indicator_tool":
+        return str(tool)
+    if not tool_class:
+        return str(tool or "unknown")
+    base = re.sub(r"Tool$", "", str(tool_class))
+    name = re.sub(r"(?<!^)(?=[A-Z])", "_", base).lower()
+    return name or str(tool_class)
+
+
+def format_tool_history(events: List[StreamEvent], limit: int = 30) -> str:
+    """Render a compact, impersonal tool history from TOOL_OBSERVATION events."""
+    rows = []
+    for e in events:
+        if e.type == EventType.TOOL_OBSERVATION and isinstance(e.metadata, dict):
+            action = str(e.metadata.get("action") or "")
+            tool = _normalize_tool_name(
+                e.metadata.get("tool"),
+                e.metadata.get("tool_class"),
+            )
+            params = e.metadata.get("params") or {}
+            # Only keep a single entry per invocation: show only 'start' events
+            if action != "start":
+                continue
+            if isinstance(params, dict) and params:
+                kv = ", ".join(f"{k}={v}" for k, v in list(params.items())[:6])
+                params_txt = f"({kv})"
+            else:
+                params_txt = ""
+            rows.append(f"- {tool}{params_txt}")
+    if not rows:
+        return "- No tool activity yet"
+    if len(rows) > limit:
+        rows = rows[-limit:]
+    return "\n".join(rows)
 
 
 def build_summary_prompt(
@@ -105,7 +144,7 @@ def build_summary_prompt(
     hits = dedup(hits)
     missing = dedup(missing)
 
-    settings_line = f"Settings: model={model}, top_k={k}, max_iters={max_iters}, score_threshold={score_threshold:.2f}."
+    settings_line = f"Settings: agent_model={model}, top_k={k}, max_iters={max_iters}, score_threshold={score_threshold:.2f}."
     context_lines = [
         f"User question: {query}",
         f"Location: lat={lat:.4f}, lon={lon:.4f}",
@@ -173,6 +212,7 @@ def current_status(events: List[StreamEvent]) -> Tuple[int, str]:
 
     priority = [
         EventType.TOOL_START,
+        EventType.AGENT_THINKING,
         EventType.RAG_AGGREGATION,
         EventType.RAG_EVALUATION,
         EventType.RAG_RETRIEVAL,
@@ -186,6 +226,7 @@ def current_status(events: List[StreamEvent]) -> Tuple[int, str]:
         EventType.RAG_EVALUATION: "Evaluating coverage",
         EventType.RAG_AGGREGATION: "Selecting final indicators",
         EventType.TOOL_START: "Running climate computations",
+        EventType.AGENT_THINKING: "Planning next step",
         EventType.TOOL_END: "Computation finished",
         EventType.AGENT_END: "Completed",
     }
@@ -257,13 +298,27 @@ def status_description(events: List[StreamEvent], label: str) -> str:
         "Selecting a compact set of indicators that best represent the query "
             + (f"(selected: {list_to_text(sel)})" if sel else "")
         ).strip()
+    if "Planning next step" in label:
+        # Differentiate thinking phases: before first tool vs post-tools synthesis
+        # Look up the latest AGENT_THINKING event to tailor the message
+        thinking_detail = None
+        for e in reversed(events):
+            if e.type == EventType.AGENT_THINKING:
+                thinking_detail = e.message
+                break
+        if thinking_detail and "Synthesizing" in thinking_detail:
+            return "Consolidating intermediate outputs and preparing the final response."
+        return "Assessing whether to call another tool or proceed to answer."
     if "Running climate computations" in label:
         inds = last.metadata.get("indicators") if isinstance(last.metadata, dict) else None
         # Try to show the current tool and parameters from the latest TOOL_OBSERVATION(start)
         current_tool = None
         for e in reversed(events):
             if e.type == EventType.TOOL_OBSERVATION and isinstance(e.metadata, dict) and str(e.metadata.get("action")) == "start":
-                tname = str(e.metadata.get("tool") or "")
+                tname = _normalize_tool_name(
+                    e.metadata.get("tool"),
+                    e.metadata.get("tool_class"),
+                )
                 params = e.metadata.get("params") or {}
                 if isinstance(params, dict) and params:
                     kv = ", ".join(f"{k}={v}" for k, v in list(params.items())[:6])
@@ -389,7 +444,6 @@ if submitted:
                 score_threshold=score_threshold,
                 llm_summary=llm_summary,
                 verbose=verbose,
-                rag_model=model,
             )
         except Exception as e:
             st.error(f"Failed to initialize agent or dataset. Error: {e}")
@@ -414,6 +468,9 @@ if submitted:
     # Streaming response containers
     status_placeholder = st.empty()
     desc_placeholder = st.empty()
+    # Live tool history panel
+    with st.expander("Tool history", expanded=False):
+        tool_hist_placeholder = st.empty()
 
     # While the agent runs, poll events and update the UI (bottom-up)
     while th.is_alive():
@@ -423,7 +480,7 @@ if submitted:
             # Status bar with spinner and dynamic description
             status_html = f"<div class='status'><span class='spinner'><span class='dot'></span><span class='dot'></span><span class='dot'></span></span><strong>{label}</strong><span style='margin-left:auto'>{pct}%</span></div>"
             status_placeholder.markdown(status_html, unsafe_allow_html=True)
-            # Throttle description changes to at most once every 5 seconds
+            # Throttle description changes to at most once every 2 seconds
             now = time.time()
             current_text = status_description(events, label)
             if st.session_state._desc_last_label is None:
@@ -433,8 +490,8 @@ if submitted:
                 desc_placeholder.markdown(f"<div class='status-desc'>{current_text}</div>", unsafe_allow_html=True)
             else:
                 changed = (label != st.session_state._desc_last_label) or (current_text != st.session_state._desc_last_text)
-                if changed and (now - st.session_state._desc_last_ts) < 5.0:
-                    # Keep previous description until 5s have elapsed
+                if changed and (now - st.session_state._desc_last_ts) < 2.0:
+                    # Keep previous description until 2s have elapsed
                     desc_placeholder.markdown(f"<div class='status-desc'>{st.session_state._desc_last_text}</div>", unsafe_allow_html=True)
                 elif changed:
                     # Apply the new description and reset timer
@@ -445,6 +502,8 @@ if submitted:
                 else:
                     # No change
                     desc_placeholder.markdown(f"<div class='status-desc'>{st.session_state._desc_last_text}</div>", unsafe_allow_html=True)
+                # Update tool history
+                tool_hist_placeholder.markdown(format_tool_history(events))
         time.sleep(0.4)
 
     # Final update after thread completion
@@ -460,6 +519,8 @@ if submitted:
         st.session_state._desc_last_text = final_text
         st.session_state._desc_last_ts = time.time()
         desc_placeholder.markdown(f"<div class='status-desc'>{final_text}</div>", unsafe_allow_html=True)
+    # Final tool history update
+    tool_hist_placeholder.markdown(format_tool_history(events))
 
     # Detach event listener
     streamer.remove_listener(st.session_state.event_collector.add_event)
@@ -558,7 +619,7 @@ if submitted:
         docx_meta = {
             "Question": query,
             "Location": f"lat={lat:.4f}, lon={lon:.4f}",
-            "Settings": f"model={model}, top_k={k}, max_iters={max_iters}, score_threshold={score_threshold:.2f}",
+            "Settings": f"agent_model={model}, top_k={k}, max_iters={max_iters}, score_threshold={score_threshold:.2f}",
         }
         ai_summary_text = None
         if "ai_summaries" in st.session_state:

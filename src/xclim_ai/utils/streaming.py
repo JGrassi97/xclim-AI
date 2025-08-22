@@ -19,6 +19,7 @@ class EventType(Enum):
     ERROR = "error"
     AGENT_START = "agent_start"
     AGENT_END = "agent_end"
+    AGENT_THINKING = "agent_thinking"
     RAG_QUERY_REFINED = "rag_query_refined"
     RAG_RETRIEVAL = "rag_retrieval"
     RAG_EVALUATION = "rag_evaluation"
