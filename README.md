@@ -23,7 +23,7 @@
 ### Prerequisites
 
 - Python 3.10 or higher
-- OpenAI API key (or Azure OpenAI)
+- OpenAI or Azure OpenAI API key (for cloud usage) OR a local [Ollama](https://ollama.com) installation for fully local models
 - Internet connection for initial setup and data retrieval
 
 ### Installation
@@ -65,8 +65,21 @@
    azure_openai_api_key: "your-azure-key"
    azure_openai_endpoint: "https://your-resource.openai.azure.com/"
    
-   llm_model: "gpt-4.1"
-   embeddings_model: "text-embedding-ada-002"
+    llm_model: "gpt-4.1"
+    embeddings_model: "text-embedding-ada-002"
+
+    # Or enable local Ollama (no API key required) in config.yaml:
+    credentials:
+       provider: ollama
+    ollama:
+       base_url: http://localhost:11434
+       llm_model: llama3.1:8b
+       llm_rag_model: llama3.1:8b
+       embedding_model: nomic-embed-text
+
+    # Make sure the Ollama daemon is running and models are pulled:
+    #   ollama pull llama3.1:8b
+    #   ollama pull nomic-embed-text
    ```
 
 2. **Configure data paths** (optional):

@@ -1,10 +1,20 @@
 # xclim_tools.utils.llm
 # =================================================
 
-# Initialization of LLMs and embeddings for supported providers:
-# - Azure OpenAI
-# - OpenAI (standard)
-# The selected backend is controlled via config["credentials"]["provider"]
+"""LLM and embedding initialization utilities.
+
+Supported providers (select via ``config["credentials"]["provider"]``):
+ - azure-openai
+ - openai
+ - ollama (local models served by the Ollama daemon)
+
+Each provider exposes three factory functions after import:
+ - ``initialize_llm(temperature=..., model=...)``  -> chat model for standard use
+ - ``initialize_llm_rag(temperature=...)``         -> chat model dedicated to RAG (can be same as base)
+ - ``initialize_embeddings()``                     -> embedding model client
+
+Adding a new provider: replicate the pattern below and extend the final error message.
+"""
 
 from langchain_openai import (
     AzureChatOpenAI,
@@ -12,13 +22,22 @@ from langchain_openai import (
     AzureOpenAIEmbeddings,
     OpenAIEmbeddings,
 )
+try:
+    # Chat + Embeddings via local Ollama
+    from langchain_community.chat_models import ChatOllama
+    from langchain_community.embeddings import OllamaEmbeddings
+except Exception:  # pragma: no cover - optional dependency already in requirements but keep safe
+    ChatOllama = None  # type: ignore
+    OllamaEmbeddings = None  # type: ignore
 from xclim_ai.utils.config import load_config
 
 cfg = load_config()
 provider = cfg["credentials"]["provider"]
 
 
+###############################################################################
 # Azure OpenAI setup
+###############################################################################
 if provider == "azure-openai":
     azure_key = cfg["azure-openai"]["azure_openai_api_key"]
     azure_endpoint = cfg["azure-openai"]["azure_openai_endpoint"]
@@ -64,7 +83,9 @@ if provider == "azure-openai":
         )
 
 
+###############################################################################
 # OpenAI setup
+###############################################################################
 elif provider == "openai":
     openai_key = cfg["openai"]["openai_api_key"]
     llm_model = cfg["openai"]["llm_model"]
@@ -100,9 +121,57 @@ elif provider == "openai":
         )
 
 
+###############################################################################
+# Ollama (local) setup
+###############################################################################
+elif provider == "ollama":
+    if ChatOllama is None:
+        raise ImportError(
+            "ChatOllama not available. Ensure 'langchain-community' is installed."
+        )
+
+    ollama_cfg = cfg.get("ollama", {})
+    base_url = ollama_cfg.get("base_url", "http://localhost:11434")
+    llm_model = ollama_cfg.get("llm_model", "llama3.1:8b")
+    rag_model = ollama_cfg.get("llm_rag_model", llm_model)
+    embedding_model = ollama_cfg.get("embedding_model", "nomic-embed-text")
+
+    def initialize_llm(temperature: float = 0.0, model: str | None = None):  # type: ignore
+        """Initialize local Ollama chat model.
+
+        Parameters
+        ----------
+        temperature : float
+            Sampling temperature.
+        model : str | None
+            Override model name (defaults to config value).
+        """
+        model_name = model or llm_model
+        return ChatOllama(model=model_name, base_url=base_url, temperature=temperature)
+
+    def initialize_llm_rag(temperature: float = 0.0):  # type: ignore
+        """Initialize Ollama chat model for RAG (can be same as base)."""
+        return ChatOllama(model=rag_model, base_url=base_url, temperature=temperature)
+
+    def initialize_embeddings():  # type: ignore
+        """Initialize Ollama embedding model.
+
+        Notes
+        -----
+        Requires the embedding model to be pulled locally, e.g.:
+            ollama pull nomic-embed-text
+        If unavailable, Ollama will attempt to pull it on first use.
+        """
+        if OllamaEmbeddings is None:
+            raise ImportError(
+                "OllamaEmbeddings not available. Ensure 'langchain-community' is installed."
+            )
+        return OllamaEmbeddings(model=embedding_model, base_url=base_url)
+
+###############################################################################
 # Unknown provider
+###############################################################################
 else:
     raise ValueError(
-        f"Unsupported provider: {provider}. "
-        "Supported providers are 'azure-openai' and 'openai'."
+        f"Unsupported provider: {provider}. Supported providers: azure-openai, openai, ollama"
     )
