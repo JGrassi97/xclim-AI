@@ -23,7 +23,8 @@
 ### Prerequisites
 
 - Python 3.10 or higher
-- OpenAI or Azure OpenAI API key (for cloud usage) OR a local [Ollama](https://ollama.com) installation for fully local models
+- OpenAI, Azure OpenAI, o Gemini API key (per uso cloud) **(consigliato)**
+- [Ollama](https://ollama.com) per modelli locali (**vedi limitazioni sotto**)
 - Internet connection for initial setup and data retrieval
 
 ### Installation
@@ -64,22 +65,25 @@
    # OR for Azure OpenAI:
    azure_openai_api_key: "your-azure-key"
    azure_openai_endpoint: "https://your-resource.openai.azure.com/"
-   
-    llm_model: "gpt-4.1"
-    embeddings_model: "text-embedding-ada-002"
 
-    # Or enable local Ollama (no API key required) in config.yaml:
-    credentials:
-       provider: ollama
-    ollama:
-       base_url: http://localhost:11434
-       llm_model: llama3.1:8b
-       llm_rag_model: llama3.1:8b
-       embedding_model: nomic-embed-text
+   # OR for Gemini (Google):
+   gemini_api_key: "your-gemini-api-key"
 
-    # Make sure the Ollama daemon is running and models are pulled:
-    #   ollama pull llama3.1:8b
-    #   ollama pull nomic-embed-text
+   llm_model: "gpt-4.1"
+   embeddings_model: "text-embedding-ada-002"
+
+   # Oppure attiva Ollama locale (no API key richiesta) in config.yaml:
+   credentials:
+      provider: ollama
+   ollama:
+      base_url: http://localhost:11434
+      llm_model: llama3.1:8b
+      llm_rag_model: llama3.1:8b
+      embedding_model: nomic-embed-text
+
+   # Assicurati che Ollama sia in esecuzione e i modelli siano scaricati:
+   #   ollama pull llama3.1:8b
+   #   ollama pull nomic-embed-text
    ```
 
 2. **Configure data paths** (optional):
@@ -104,6 +108,21 @@
 ## Usage
 
 ### Command Line Interface
+> ⚠️ **Limitazione Ollama**: la maggior parte dei modelli open source (incluso gpt-oss 20b) non supporta tool-calling automatico. Usa OpenAI, Azure o Gemini per tutte le funzionalità. Ollama funziona solo per query testuali senza tool agent.
+### Provider Gemini (Google)
+
+Per usare Gemini, aggiungi al tuo `config.yaml`:
+
+```yaml
+credentials:
+   provider: gemini
+gemini:
+   gemini_api_key: "your-gemini-api-key"
+   llm_model: "models/gemini-1.5-pro-latest"
+   embedding_model: "models/embedding-001"
+```
+
+Assicurati di avere una API key Gemini valida: https://aistudio.google.com/app/apikey
 
 The primary way to interact with xclim-AI is through the command-line interface using `xclim-cli`. Simply provide coordinates and describe your climate concern in natural language:
 

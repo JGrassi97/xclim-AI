@@ -7,11 +7,13 @@ netCDF4
 # xclim for computing climate indicators
 xclim
 
+
 # LangChain and AI agent framework
 langchain
 langchain-openai
 langchain-chroma
 langchain-community
+langchain-google-genai
 langgraph
 langsmith
 

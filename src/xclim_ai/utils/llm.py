@@ -24,7 +24,7 @@ from langchain_openai import (
 )
 try:
     # Chat + Embeddings via local Ollama
-    from langchain_community.chat_models import ChatOllama
+    from langchain_ollama import ChatOllama
     from langchain_community.embeddings import OllamaEmbeddings
 except Exception:  # pragma: no cover - optional dependency already in requirements but keep safe
     ChatOllama = None  # type: ignore
@@ -169,9 +169,43 @@ elif provider == "ollama":
         return OllamaEmbeddings(model=embedding_model, base_url=base_url)
 
 ###############################################################################
+# Gemini (Google) setup
+###############################################################################
+elif provider == "gemini":
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+    except ImportError:
+        raise ImportError("Install langchain-google-genai for Gemini support: pip install langchain-google-genai")
+    gemini_cfg = cfg.get("gemini", {})
+    gemini_api_key = gemini_cfg.get("gemini_api_key") or cfg.get("gemini_api_key")
+    llm_model = gemini_cfg.get("llm_model", "models/gemini-1.5-pro-latest")
+    embedding_model = gemini_cfg.get("embedding_model", "models/embedding-001")
+
+    def initialize_llm(temperature: float = 0.0, model: str | None = None):
+        model_name = model or llm_model
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=gemini_api_key,
+            temperature=temperature,
+        )
+
+    def initialize_llm_rag(temperature: float = 0.0):
+        return ChatGoogleGenerativeAI(
+            model=llm_model,
+            google_api_key=gemini_api_key,
+            temperature=temperature,
+        )
+
+    def initialize_embeddings():
+        return GoogleGenerativeAIEmbeddings(
+            model=embedding_model,
+            google_api_key=gemini_api_key,
+        )
+
+###############################################################################
 # Unknown provider
 ###############################################################################
 else:
     raise ValueError(
-        f"Unsupported provider: {provider}. Supported providers: azure-openai, openai, ollama"
+        f"Unsupported provider: {provider}. Supported providers: azure-openai, openai, ollama, gemini"
     )

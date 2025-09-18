@@ -18,7 +18,7 @@ def call_xclim_ai_direct(
     lat: float,
     lon: float,
     query: str,
-    model_name: str = "gpt-4.1-mini",
+    model_name: str | None = None,
     k: int = 1,
     max_iters: int = 1,
     llm_summary: bool = False,
@@ -32,6 +32,7 @@ def call_xclim_ai_direct(
     initialize_langsmith()
     client = Client()
 
+    # If model_name is None we let initialize_llm fall back to config-defined default
     llm = initialize_llm(model=model_name)
 
 
@@ -60,6 +61,7 @@ def main():
     parser.add_argument("--query", type=str, required=True, help="Query to run")
     parser.add_argument("--k", type=int, default=1, help="Number of top RAG results")
     parser.add_argument("--max_iters", type=int, default=1, help="Max iterations of the agent")
+    parser.add_argument("--model", type=str, default=None, help="Override model name (optional)")
     parser.add_argument("--dataset", type=str, default=None, help="Dataset loader to use")
     parser.add_argument("--start_date", type=str, default="1950-01-01", help="Start date override")
     parser.add_argument("--end_date", type=str, default="2050-12-31", help="End date override")
@@ -68,13 +70,14 @@ def main():
 
     args = parser.parse_args()
     result = call_xclim_ai_direct(
-        args.lat,
-        args.lon,
-        args.query,
-        args.k,
-        args.max_iters,
-        args.llm_summary,
-        args.verbose,
+        lat=args.lat,
+        lon=args.lon,
+        query=args.query,
+        model_name=args.model,
+        k=args.k,
+        max_iters=args.max_iters,
+        llm_summary=args.llm_summary,
+        verbose=args.verbose,
         dataset=args.dataset,
         start_date=args.start_date,
         end_date=args.end_date,
