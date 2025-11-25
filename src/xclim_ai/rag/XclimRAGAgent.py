@@ -29,6 +29,7 @@ from xclim_ai.utils.paths import XCLIM_CHROMA
 from xclim_ai.utils.tools import get_valid_tools
 from xclim_ai.rag.utils import safe_get_embeddings, get_top_k
 from xclim_ai.utils.logging import get_logger, set_logger_level
+from xclim_ai.utils.streaming import get_streamer, EventType
 
 
 @dataclass
@@ -61,6 +62,7 @@ class XclimRAGAgent:
     score_threshold: float = 0.75
     return_k: int | None = None
     verbose: bool = False
+    rag_model: str | None = None
 
     _llm: Any = field(init=False, repr=False)
     _embeddings: Any = field(init=False, repr=False)
@@ -78,8 +80,9 @@ class XclimRAGAgent:
     def __post_init__(self) -> None:
         self._logger = get_logger()
         set_logger_level(self._logger, self.verbose)
+        self._streamer = get_streamer()
 
-        self._llm = initialize_llm_rag()
+        self._llm = initialize_llm_rag(model=self.rag_model)
         self._embeddings = initialize_embeddings()
 
         valid_tools = [cls(ds=None) for cls in get_valid_tools()]
@@ -98,6 +101,7 @@ class XclimRAGAgent:
         self._graph = self._build_graph()
 
     def run(self, user_query: str) -> Tuple[str, List[Dict[str, Any]]]:
+        self._streamer.emit(EventType.AGENT_START, f"Starting RAG agent with query: {user_query}", "RAG")
         self._topic_cache = set(self._extract_topics_llm(user_query))
 
         init_state: RagState = {
@@ -112,6 +116,8 @@ class XclimRAGAgent:
         final_state: RagState = self._graph.invoke(init_state, config={"recursion_limit": 100})
         best_q = final_state.get("best_query", final_state["current_query"])
         hits = final_state["final_hits"]
+        
+        self._streamer.emit(EventType.AGENT_END, f"RAG agent completed with {len(hits)} indicators", "RAG")
         return best_q, hits
 
     def _build_graph(self):
@@ -139,6 +145,11 @@ class XclimRAGAgent:
         refined = self._llm.invoke(f"{q}\n\n{prompt}").content.strip()
         emb = np.asarray(self._embeddings.embed_query(refined), dtype=float)
 
+        self._streamer.emit(EventType.RAG_QUERY_REFINED, 
+                           f"Query refined: {refined}", 
+                           "RAG", 
+                           original=q, refined=refined, topics=topics)
+
         if self.verbose:
             self._logger.debug("\n[Query Refinement]")
             self._logger.debug(f"Original: {q}")
@@ -158,6 +169,13 @@ class XclimRAGAgent:
         remaining = set(state["remaining_topics"])
         remaining -= self._topics_covered(hits)
 
+        self._streamer.emit(EventType.RAG_RETRIEVAL, 
+                           f"Retrieved {len(hits)} indicators with mean similarity {mean:.3f}", 
+                           "RAG",
+                           hits=[h["id"] for h in hits], 
+                           mean_similarity=mean,
+                           remaining_topics=list(remaining))
+
         if self.verbose:
             self._logger.debug("\n[RAG Execution]")
             self._logger.debug(f"Top-{self.k} mean similarity: {mean:.3f}")
@@ -176,6 +194,13 @@ class XclimRAGAgent:
         cont = ((state["mean_score"] < self.score_threshold or state["remaining_topics"]) and
                 state["iter_idx"] < self.max_iters)
         state["continue_"] = cont
+
+        self._streamer.emit(EventType.RAG_EVALUATION, 
+                           f"Score: {state['mean_score']:.3f}, Continue: {cont}", 
+                           "RAG",
+                           score=state["mean_score"],
+                           remaining_topics=state["remaining_topics"],
+                           continue_iteration=cont)
 
         if self.verbose:
             self._logger.debug("\n[Evaluator]")
@@ -202,6 +227,12 @@ class XclimRAGAgent:
 
         scored = self._score_hits_with_llm(state["original_query"], list(unique.values()))
         final_hits = self._diversified_select(scored)[: self.return_k]
+
+        self._streamer.emit(EventType.RAG_AGGREGATION, 
+                           f"Selected {len(final_hits)} final indicators", 
+                           "RAG",
+                           selected_indicators=[h["id"] for h in final_hits],
+                           scores=[h.get("_llm_score", 0.0) for h in final_hits])
 
         if self.verbose:
             self._logger.debug("\n[Aggregator]")
