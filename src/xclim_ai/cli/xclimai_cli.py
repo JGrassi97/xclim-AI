@@ -16,8 +16,7 @@ def call_xclim_ai_direct(
     lat: float,
     lon: float,
     query: str,
-    *,
-    model_name: str = "gpt-4.1",
+    model_name: str | None = None,
     k: int = 1,
     max_iters: int = 1,
     llm_summary: bool = False,
@@ -38,7 +37,7 @@ def call_xclim_ai_direct(
     initialize_langsmith()
     client = Client()  # opzionale; mantiene compatibilità con il codice esistente
 
-    # Inizializza LLM
+    # If model_name is None we let initialize_llm fall back to config-defined default
     llm = initialize_llm(model=model_name)
 
     # Istanzia l'agente con i parametri dataset/periodo
@@ -76,10 +75,7 @@ def main():
     )
     parser.add_argument("--k", type=int, default=1, help="Number of top RAG results")
     parser.add_argument("--max_iters", type=int, default=1, help="Max iterations of the agent")
-    parser.add_argument("--llm_summary", action="store_true", help="Whether to summarize the output")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-
-    # Dataset & periodo
+    parser.add_argument("--model", type=str, default=None, help="Override model name (optional)")
     parser.add_argument("--dataset", type=str, default=None, help="Dataset loader to use")
     parser.add_argument("--start_date", type=str, default="1950-01-01", help="Start date override")
     parser.add_argument("--end_date", type=str, default="2050-12-31", help="End date override")
@@ -98,7 +94,6 @@ def main():
         max_iters=args.max_iters,
         llm_summary=args.llm_summary,
         verbose=args.verbose,
-        output_dir=args.output_dir,
         dataset=args.dataset,
         start_date=args.start_date,
         end_date=args.end_date,
