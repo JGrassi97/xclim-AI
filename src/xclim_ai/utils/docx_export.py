@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 import re
 
 from docx import Document
@@ -32,8 +32,151 @@ def _add_kv(doc: Document, label: str, value: str) -> None:
     p.paragraph_format.space_after = Pt(3)
 
 
+def _is_table_sep(line: str) -> bool:
+    """Return True if line is a markdown table separator (---, :---:, ---:, :---)."""
+    raw = line.strip()
+    if not raw or '|' not in raw:
+        return False
+    cells = [c.strip() for c in raw.strip('|').split('|')]
+    # Remove leading/trailing empty cells introduced by pipes like | a | b |
+    while cells and cells[0] == '':
+        cells.pop(0)
+    while cells and cells[-1] == '':
+        cells.pop()
+    if not cells:
+        return False
+    valid = True
+    for c in cells:
+        if not re.fullmatch(r':?-{3,}:?', c):
+            valid = False
+            break
+    return valid
+
+
+def _split_table_cells(row: str) -> List[str]:
+    parts = [c.strip() for c in row.strip().strip('|').split('|')]
+    # Drop empty leading/trailing artifacts
+    if parts and parts[0] == '':
+        parts = parts[1:]
+    if parts and parts[-1] == '':
+        parts = parts[:-1]
+    return parts
+
+
+def _detect_table(lines: List[str], idx: int) -> Tuple[Optional[dict], int]:
+    """Detect a markdown table starting at lines[idx]."""
+    if idx >= len(lines):
+        return None, idx
+    header_line = lines[idx]
+    if '|' not in header_line:
+        return None, idx
+    if idx + 1 >= len(lines):
+        return None, idx
+    sep_line = lines[idx + 1]
+    if not _is_table_sep(sep_line):
+        return None, idx
+    headers = _split_table_cells(header_line)
+    aligns_raw = _split_table_cells(sep_line)
+    # Filter out accidental heading rows like '# | something'
+    if any(h.startswith('#') for h in headers):
+        return None, idx
+    aligns: List[str] = []
+    for a in aligns_raw:
+        if a.startswith(':') and a.endswith(':'):
+            aligns.append('center')
+        elif a.endswith(':'):
+            aligns.append('right')
+        elif a.startswith(':'):
+            aligns.append('left')
+        else:
+            aligns.append('left')
+    rows: List[List[str]] = []
+    i = idx + 2
+    while i < len(lines):
+        raw = lines[i]
+        if not raw.strip():
+            break
+        if '|' not in raw:
+            break
+        row_cells = _split_table_cells(raw)
+        if not row_cells:
+            break
+        if len(row_cells) < len(headers):
+            row_cells += [''] * (len(headers) - len(row_cells))
+        elif len(row_cells) > len(headers):
+            row_cells = row_cells[:len(headers)]
+        rows.append(row_cells)
+        i += 1
+    if not headers or not rows:
+        return None, idx
+    spec = {
+        'headers': headers,
+        'aligns': aligns[:len(headers)],
+        'rows': rows,
+    }
+    return spec, i
+
+
+def _apply_table_alignment(cell_paragraph, align: str):
+    if align == 'center':
+        cell_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    elif align == 'right':
+        cell_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    else:
+        cell_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+
+def _render_table(doc: Document, spec: dict):
+    headers: List[str] = spec['headers']
+    rows: List[List[str]] = spec['rows']
+    aligns: List[str] = spec['aligns']
+    ncols = len(headers)
+    table = doc.add_table(rows=1 + len(rows), cols=ncols)
+    # Style preference order
+    style_candidates = ["Table Grid", "Light Grid", "Medium Grid 1 Accent 1"]
+    existing = {s.name for s in doc.styles}
+    for sc in style_candidates:
+        if sc in existing:
+            table.style = sc
+            break
+    table.autofit = True
+    # Set uniform column widths (approx, Word may adjust)
+    try:
+        total_width = Inches(6.0)
+        col_width = total_width / ncols
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    p.paragraph_format.space_after = Pt(0)
+    except Exception:
+        pass
+    # Header
+    hdr_cells = table.rows[0].cells
+    for j, h in enumerate(headers):
+        p = hdr_cells[j].paragraphs[0]
+        p.clear()
+        _append_markdown_inline(p, h)
+        for run in p.runs:
+            run.bold = True
+        _apply_table_alignment(p, aligns[j] if j < len(aligns) else 'left')
+    # Body with zebra striping
+    for i, r in enumerate(rows):
+        cells = table.rows[i + 1].cells
+        for j, val in enumerate(r):
+            p = cells[j].paragraphs[0]
+            p.clear()
+            _append_markdown_inline(p, val)
+            _apply_table_alignment(p, aligns[j] if j < len(aligns) else 'left')
+        if i % 2 == 1:  # shade every second data row
+            for cell in cells:
+                tcPr = cell._tc.get_or_add_tcPr()
+                shd = OxmlElement('w:shd')
+                shd.set(qn('w:fill'), 'F2F2F2')
+                tcPr.append(shd)
+
+
 def _render_markdown_minimal(doc: Document, md: str) -> None:
-    """Render a small subset of Markdown (headings/bullets/paragraphs)."""
+    """Render a small subset of Markdown (headings/bullets/paragraphs + tables)."""
     if not md:
         return
     lines = md.splitlines()
@@ -48,10 +191,20 @@ def _render_markdown_minimal(doc: Document, md: str) -> None:
             p.paragraph_format.space_after = Pt(3)
             para_buf = []
 
-    for raw in lines:
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
         line = raw.rstrip()
         if not line.strip():
             flush_para()
+            i += 1
+            continue
+        # Table detection
+        spec, end_idx = _detect_table(lines, i)
+        if spec:
+            flush_para()
+            _render_table(doc, spec)
+            i = end_idx
             continue
         # Headings: support # to ######
         m = re.match(r"^(#{1,6})\s+(.*)$", line)
@@ -60,6 +213,7 @@ def _render_markdown_minimal(doc: Document, md: str) -> None:
             hashes, text = m.groups()
             level = len(hashes)
             _add_heading(doc, text.strip(), level=level)
+            i += 1
             continue
         if line.lstrip().startswith(("- ", "* ")):
             flush_para()
@@ -68,8 +222,10 @@ def _render_markdown_minimal(doc: Document, md: str) -> None:
             _append_markdown_inline(bp, bullet)
             bp.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             bp.paragraph_format.space_after = Pt(0)
+            i += 1
             continue
         para_buf.append(line.strip())
+        i += 1
     flush_para()
     # Ensure justification where missing (headings excluded)
     for p in doc.paragraphs:

@@ -5,10 +5,10 @@ pandas
 netCDF4
 
 # xclim for computing climate indicators
-xclim
+xclim==0.57.0
 
 # LangChain and AI agent framework
-langchain
+langchain==0.3.26
 langchain-openai
 langchain-chroma
 langchain-community
@@ -36,3 +36,4 @@ pymannkendall
 # App UI
 streamlit>=1.32
 python-docx
+langchain-community  # includes ChatOllama wrapper

@@ -6,6 +6,7 @@ import zipfile
 import threading
 import time
 import re
+import subprocess
 from pathlib import Path
 from typing import List, Tuple
 
@@ -361,25 +362,53 @@ with st.sidebar:
     with st.expander("Model and retrieval", expanded=False):
         provider = st.selectbox(
             "Provider",
-            options=["openai", "azure-openai"],
+            options=["openai", "azure-openai", "ollama"],
             index=0,
-            help="Must match your credentials in config.yaml",
+            help="Must match your credentials in config.yaml (for ollama a local daemon must be running)",
         )
-        model = st.selectbox(
-            "GPT model",
-            options=[
-                "gpt-5",
-                "gpt-5-mini",
-                "gpt-4o-mini",
-                "gpt-4o",
-                "gpt-4.1-mini",
-                "gpt-4.1",
-                "o4-mini",
-                "o4",
-            ],
-            index=0,
-            help="Overrides model from config for this session",
-        )
+
+        @st.cache_data(show_spinner=False)
+        def _list_ollama_models() -> list[str]:
+            try:
+                proc = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+                if proc.returncode != 0:
+                    raise RuntimeError(proc.stderr.strip() or "ollama list failed")
+                lines = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
+                models: list[str] = []
+                for ln in lines:
+                    if ln.lower().startswith("name ") or ln.startswith("NAME "):
+                        continue
+                    # Format usually: name  size   modified
+                    name = ln.split()[0]
+                    models.append(name)
+                return models or ["llama3"]
+            except Exception:
+                return ["llama3"]
+
+        if provider == "ollama":
+            available_models = _list_ollama_models()
+            model = st.selectbox(
+                "Ollama model",
+                options=available_models,
+                index=0,
+                help="Models detected via 'ollama list'",
+            )
+        else:
+            model = st.selectbox(
+                "GPT model",
+                options=[
+                    "gpt-5",
+                    "gpt-5-mini",
+                    "gpt-4o-mini",
+                    "gpt-4o",
+                    "gpt-4.1-mini",
+                    "gpt-4.1",
+                    "o4-mini",
+                    "o4",
+                ],
+                index=0,
+                help="Overrides model from config for this session",
+            )
         k = st.slider("Top-K indicators", min_value=1, max_value=10, value=3, step=1)
         max_iters = st.slider("Max RAG iterations", min_value=1, max_value=10, value=3, step=1)
         score_threshold = st.slider("Score threshold", min_value=0.0, max_value=1.0, value=0.75, step=0.05)
@@ -426,12 +455,18 @@ if submitted:
         st.session_state._desc_last_ts = 0.0
 
         try:
-            # Import lazily to avoid import-time config loading errors
-            from xclim_ai.utils.llm import initialize_llm  # noqa: WPS433
-            # Override provider is not wired here; provider must match config for credentials
-            llm = initialize_llm(model=model)
+            if provider == "ollama":
+                try:
+                    from langchain_community.chat_models import ChatOllama  # type: ignore
+                except Exception as _imp_err:  # pragma: no cover
+                    st.error(f"Missing Ollama integration: {_imp_err}")
+                    st.stop()
+                llm = ChatOllama(model=model, temperature=0)
+            else:
+                from xclim_ai.utils.llm import initialize_llm  # noqa: WPS433
+                llm = initialize_llm(model=model)
         except Exception as e:
-            st.error(f"Failed to initialize LLM. Check your credentials in config.yaml. Error: {e}")
+            st.error(f"Failed to initialize LLM. Error: {e}")
             st.stop()
 
         try:
