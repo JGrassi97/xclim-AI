@@ -13,7 +13,7 @@
 - **Global Coverage**: Accesses high-resolution daily climate projections via the Open-Meteo API for any location worldwide
 - **Comprehensive Analysis**: Computes over 100+ climate indicators from the xclim library including temperature extremes, precipitation patterns, drought indices, and more
 - **Natural Language Interface**: Query climate data using plain English instead of complex scientific terminology
-- **Local Data Storage**: All data and embeddings are stored locally for offline operation and privacy
+- **Optional Local Usage**: All data and embeddings can be stored locally for offline operation and privacy
 - **Rich Output Formats**: Generates CSV files, plots, statistical summaries, and optional LLM-generated interpretations
 - **Flexible Architecture**: Supports both programmatic use and command-line interaction
 - **Detailed Logging**: Comprehensive logging and debugging capabilities for transparency
@@ -23,9 +23,10 @@
 ### Prerequisites
 
 - Python 3.10 or higher
-- OpenAI, Azure OpenAI, o Gemini API key (per uso cloud) **(consigliato)**
-- [Ollama](https://ollama.com) per modelli locali (**vedi limitazioni sotto**)
-- Internet connection for initial setup and data retrieval
+- An llm provider between:
+   - OpenAI, Azure OpenAI, or Gemini API
+   - [Ollama](https://ollama.com) for local use
+
 
 ### Installation
 
@@ -72,7 +73,7 @@
    llm_model: "gpt-4.1"
    embeddings_model: "text-embedding-ada-002"
 
-   # Oppure attiva Ollama locale (no API key richiesta) in config.yaml:
+   # OR ollama
    credentials:
       provider: ollama
    ollama:
@@ -81,9 +82,6 @@
       llm_rag_model: llama3.1:8b
       embedding_model: nomic-embed-text
 
-   # Assicurati che Ollama sia in esecuzione e i modelli siano scaricati:
-   #   ollama pull llama3.1:8b
-   #   ollama pull nomic-embed-text
    ```
 
 2. **Configure data paths** (optional):
@@ -108,21 +106,6 @@
 ## Usage
 
 ### Command Line Interface
-> ⚠️ **Limitazione Ollama**: la maggior parte dei modelli open source (incluso gpt-oss 20b) non supporta tool-calling automatico. Usa OpenAI, Azure o Gemini per tutte le funzionalità. Ollama funziona solo per query testuali senza tool agent.
-### Provider Gemini (Google)
-
-Per usare Gemini, aggiungi al tuo `config.yaml`:
-
-```yaml
-credentials:
-   provider: gemini
-gemini:
-   gemini_api_key: "your-gemini-api-key"
-   llm_model: "models/gemini-1.5-pro-latest"
-   embedding_model: "models/embedding-001"
-```
-
-Assicurati di avere una API key Gemini valida: https://aistudio.google.com/app/apikey
 
 The primary way to interact with xclim-AI is through the command-line interface using `xclim-cli`. Simply provide coordinates and describe your climate concern in natural language:
 
@@ -201,26 +184,6 @@ All results are automatically saved to the output directory (`~/xclim_data/outpu
 - **Logs**: Detailed execution logs for debugging
 - **LLM Summaries**: Human-readable interpretations (if enabled)
 
-## Architecture
-
-### System Components
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   User Query    │───▶│   RAG Agent     │───▶│  Tool Executor  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                              │                        │
-                              ▼                        ▼
-                    ┌─────────────────┐    ┌─────────────────┐
-                    │ Vector Database │    │ Climate Dataset │
-                    │  (Chroma DB)    │    │ (Open-Meteo API)│
-                    └─────────────────┘    └─────────────────┘
-```
-
-1. **RAG Agent**: Processes natural language queries and retrieves relevant climate indicators using semantic similarity
-2. **Tool Executor**: Runs selected xclim indicators on climate data
-3. **Vector Database**: Stores embeddings of climate indicator descriptions for efficient retrieval
-4. **Climate Dataset**: High-resolution daily climate projections from multiple CMIP6 models
 
 ### Data Sources
 
@@ -229,103 +192,6 @@ All results are automatically saved to the output directory (`~/xclim_data/outpu
 - **Temporal Coverage**: Historical data (1950-2023) and projections (2024-2050)
 - **Spatial Resolution**: Global coverage with location-specific extraction
 
-## Development
-
-
-### Project Structure
-
-```
-xclim-AI/
-├── src/xclim_ai/           # Main package
-│   ├── cli/                # Command-line interface
-│   ├── core/               # Core agent and factory logic
-│   ├── datasets/           # Data loading and processing
-│   ├── prompts/            # LLM prompt templates
-│   ├── rag/                # RAG implementation
-│   ├── scripts/            # Utility scripts
-│   ├── stats/              # Statistical analysis
-│   └── utils/              # Utilities and helpers
-├── tests/                  # Test suite
-│   ├── unit/               # Unit tests
-│   ├── integration/        # Integration tests
-│   └── fixtures/           # Test fixtures
-├── scripts/                # Development scripts
-└── docs/                   # Documentation
-```
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `XCLIM_TOOLS_DATA` | Base directory for data storage | `~/xclim_data` |
-| `OPENAI_API_KEY` | OpenAI API key | - |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | - |
-| `LANGCHAIN_TRACING_V2` | Enable LangSmith tracing | `false` |
-
-### Configuration File (`~/config.yaml`)
-
-```yaml
-# LLM Configuration
-openai_api_key: "your-key-here"
-llm_model: "gpt-3.5-turbo"
-embeddings_model: "text-embedding-ada-002"
-
-# Azure OpenAI (alternative)
-azure_openai_api_key: "your-azure-key"
-azure_openai_endpoint: "https://your-resource.openai.azure.com/"
-
-# LangSmith (optional)
-langsmith_api_key: "your-langsmith-key"
-langsmith_project: "xclim-ai"
-
-# Dataset Configuration
-dataset:
-  loader: "openmeteo_standard_ensemble"
-  lat: 45.0
-  lon: 10.0
-  start_date: "2020-01-01"
-  end_date: "2050-12-31"
-  daily: ["temperature_2m_mean", "temperature_2m_max", "temperature_2m_min", 
-          "precipitation_sum", "wind_speed_10m_mean", "relative_humidity_2m_mean"]
-```
-
-## Contributing
-
-We welcome contributions to xclim-AI! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
-
-### How to Contribute
-
-1. **Fork the repository** and create a feature branch
-2. **Install development dependencies**: `make setup-dev`
-3. **Make your changes** following the code style guidelines
-4. **Add tests** for new functionality
-5. **Run the test suite**: `make check`
-6. **Submit a pull request** with a clear description of your changes
-
-### Development Guidelines
-
-- Follow [PEP 8](https://pep8.org/) style guidelines
-- Use [Black](https://black.readthedocs.io/) for code formatting
-- Add docstrings to all public functions and classes
-- Write tests for new features and bug fixes
-- Update documentation when needed
-
-### Reporting Issues
-
-Please use the [GitHub Issues](https://github.com/JGrassi97/xclim-AI/issues) page to report bugs or request features. Include:
-
-- Clear description of the issue or feature request
-- Steps to reproduce (for bugs)
-- Expected vs. actual behavior
-- System information (OS, Python version, etc.)
-
-## Documentation
-
-- **API Documentation**: Generated automatically from docstrings
-- **User Guide**: See `docs/` directory for detailed usage examples
-- **Developer Guide**: Information for contributors and developers
 
 ## Acknowledgments
 
